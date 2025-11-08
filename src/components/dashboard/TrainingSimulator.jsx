@@ -16,10 +16,138 @@ const TrainingSimulator = () => {
   const [isMuted, setIsMuted] = useState(false);
   const [isTrainingStarted, setIsTrainingStarted] = useState(false);
   const [isEndingCall, setIsEndingCall] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportContent, setReportContent] = useState('');
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
 
   useEffect(() => {
     fetchClientes();
   }, []);
+
+  // Report Modal Component
+  const ReportModal = () => {
+    if (!showReportModal) return null;
+
+    return (
+      <>
+        {/* Backdrop */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={() => setShowReportModal(false)}
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50"
+        />
+
+        {/* Modal */}
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.9, y: 20 }}
+            transition={{ type: 'spring', duration: 0.5 }}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-gradient-to-br from-[#1e293b] to-[#0f172a] rounded-3xl shadow-2xl border border-blue-500/30 max-w-3xl w-full max-h-[85vh] overflow-hidden pointer-events-auto"
+          >
+            {/* Header */}
+            <div className="bg-gradient-to-r from-blue-500/20 to-blue-600/10 border-b border-blue-500/30 px-8 py-6 flex items-center justify-between">
+              <div className="flex items-center space-x-4">
+                <div className="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="text-2xl font-bold text-white font-poppins">
+                    Tactical Sales Briefing
+                  </h2>
+                  <p className="text-blue-400 text-sm">
+                    {selectedCliente?.nome} • {selectedCliente?.empresa}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowReportModal(false)}
+                className="w-10 h-10 rounded-full bg-slate-700/50 hover:bg-slate-700 text-gray-400 hover:text-white transition-all flex items-center justify-center"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-8 overflow-y-auto max-h-[calc(85vh-180px)]">
+              <div className="bg-gradient-to-br from-blue-500/10 to-blue-600/5 border border-blue-500/20 rounded-2xl p-6">
+                <div className="space-y-4">
+                  <div className="flex items-start space-x-3 mb-4">
+                    <div className="w-8 h-8 rounded-full bg-yellow-500/20 flex items-center justify-center flex-shrink-0 mt-1">
+                      <span className="text-xl">🎯</span>
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-yellow-400 font-bold text-sm mb-2">BATTLE PLAN</h3>
+                    </div>
+                  </div>
+                  
+                  <div className="bg-[#0f172a] rounded-xl p-5 border border-slate-700/50">
+                    <pre className="text-gray-300 leading-relaxed whitespace-pre-wrap font-sans text-sm">
+                      {reportContent}
+                    </pre>
+                  </div>
+
+                  {/* Quick Actions */}
+                  <div className="grid grid-cols-2 gap-3 mt-6">
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(reportContent);
+                        alert('Report copied to clipboard!');
+                      }}
+                      className="px-4 py-3 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-xl text-emerald-400 font-semibold transition-all flex items-center justify-center space-x-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                      <span>Copy</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        const blob = new Blob([reportContent], { type: 'text/plain' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `briefing-${selectedCliente?.nome?.replace(/\s+/g, '-')}.txt`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                      className="px-4 py-3 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 rounded-xl text-blue-400 font-semibold transition-all flex items-center justify-center space-x-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                      <span>Download</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="border-t border-slate-700/50 px-8 py-5 bg-[#0f172a] flex items-center justify-between">
+              <div className="text-gray-400 text-sm">
+                💡 Review this before the call
+              </div>
+              <button
+                onClick={() => setShowReportModal(false)}
+                className="px-8 py-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-full font-semibold transition-all hover:scale-105 shadow-lg shadow-blue-500/30"
+              >
+                Close
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      </>
+    );
+  };
 
   const fetchClientes = async () => {
     try {
@@ -222,6 +350,119 @@ DO NOT:
       conversationRef.current.setMicMuted(newMutedState);
       setIsMuted(newMutedState);
       console.log(newMutedState ? '🔇 Microphone muted' : '🔊 Microphone unmuted');
+    }
+  };
+
+  const handleGetReport = async () => {
+    if (!selectedCliente) return;
+    
+    setIsGeneratingReport(true);
+    console.log('📊 Gerando relatório tático para:', selectedCliente.nome);
+
+    try {
+      // Buscar dados do comercial
+      const { data: comercialData } = await supabase
+        .from('comerciais')
+        .select('*')
+        .limit(1)
+        .single();
+
+      const prompt = `You are an experienced sales coach. Create a TACTICAL and SPECIFIC sales briefing report to prepare this sales rep for their upcoming call.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 LEAD INTELLIGENCE DATA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+👤 DECISION MAKER:
+   Name: ${selectedCliente.nome}
+   Company: ${selectedCliente.empresa}
+   Industry: ${selectedCliente.setor}
+   Team Size: ${selectedCliente.tamanho_equipa} people
+   Budget Range: ${selectedCliente.orcamento_est}
+   Urgency Level: ${selectedCliente.urgencia}
+   AI Maturity: ${selectedCliente.experiencia_ia}
+   Primary Goal: ${selectedCliente.objetivo}
+${selectedCliente.insights ? `   Key Insights: ${selectedCliente.insights}` : ''}
+
+👨‍💼 SALES REP:
+   Name: ${comercialData?.nome || 'Sales Representative'}
+   Email: ${comercialData?.email || 'N/A'}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+YOUR MISSION:
+Create a TACTICAL BATTLE PLAN - NOT generic advice. Reference specific numbers, pain points, and details from this lead's profile.
+
+FORMAT: 15-20 SHORT, PUNCHY LINES
+TONE: Direct, confident, tactical - use phrases like "ATTACK THIS", "FOCUS HERE", "THEY NEED THIS"
+NO FLUFF: Skip intros, get straight to actionable tactics
+
+REQUIRED STRUCTURE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎯 PRIMARY FOCUS (2-3 lines)
+→ What's the ONE thing to center this call around?
+→ Reference their specific objective: "${selectedCliente.objetivo}"
+
+🔥 ATTACK POINTS (3-4 bullet points)
+→ Specific angles to push based on their industry (${selectedCliente.setor})
+→ Concrete value propositions for ${selectedCliente.tamanho_equipa}-person team
+→ AI experience level (${selectedCliente.experiencia_ia}) = how technical to get
+
+⚠️ EXPECTED OBJECTIONS (2-3 points)
+→ Predict pushback based on urgency (${selectedCliente.urgencia})
+→ Budget concerns at ${selectedCliente.orcamento_est} range
+→ Prepare counter-arguments
+
+💰 PRICING STRATEGY (2 lines)
+→ Positioning for ${selectedCliente.orcamento_est} budget
+→ Package/tier recommendation
+
+🚀 CLOSING MOVE (1-2 lines)
+→ Specific call-to-action for THIS prospect
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OUTPUT IN ENGLISH. BE BRUTALLY SPECIFIC.`;
+
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are an elite sales coach who gives tactical, specific, and actionable advice. You never give generic tips. You analyze the lead data deeply and create battle plans that reference concrete details. You are direct, confident, and results-focused.'
+            },
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+          temperature: 0.85,
+          max_tokens: 1000,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Erro ao gerar relatório');
+      }
+
+      const data = await response.json();
+      const report = data.choices[0].message.content;
+      
+      setReportContent(report);
+      setShowReportModal(true);
+      console.log('✅ Relatório gerado com sucesso');
+
+    } catch (error) {
+      console.error('❌ Erro ao gerar relatório:', error);
+      alert('Erro ao gerar relatório. Verifica se a API key da OpenAI está configurada.');
+    } finally {
+      setIsGeneratingReport(false);
     }
   };
 
@@ -459,6 +700,8 @@ DO NOT:
   // Call Active View
   if (isCallActive && selectedCliente) {
     return (
+      <>
+        <ReportModal />
       <motion.div
         className="px-6 py-6 max-h-[calc(100vh-180px)] overflow-hidden"
         initial={{ opacity: 0 }}
@@ -550,13 +793,23 @@ DO NOT:
                 </button>
 
                 <button
-                  onClick={() => alert('Get Report feature coming soon!')}
-                  className="px-12 py-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-full font-bold text-base transition-all hover:scale-105 shadow-2xl shadow-blue-500/50 flex items-center justify-center space-x-2"
-                >
+                onClick={handleGetReport}
+                disabled={isGeneratingReport}
+                className="px-12 py-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:from-blue-400 disabled:to-blue-500 disabled:cursor-not-allowed text-white rounded-full font-bold text-base transition-all hover:scale-105 shadow-2xl shadow-blue-500/50 flex items-center justify-center space-x-2"
+              >
+                {isGeneratingReport ? (
+                  <>
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                    <span>Generating...</span>
+                  </>
+                ) : (
+                  <>
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                   <span>Get Report</span>
+                  </>
+                )}
                 </button>
               </div>
 
@@ -667,11 +920,15 @@ DO NOT:
           )}
         </div>
       </motion.div>
+      </>
     );
   }
 
+
   // Client Selection View
   return (
+    <>
+      <ReportModal />
     <motion.div
       className="px-6 py-12"
       initial={{ opacity: 0, scale: 0.95 }}
@@ -757,6 +1014,7 @@ DO NOT:
         )}
       </div>
     </motion.div>
+    </>
   );
 };
 
