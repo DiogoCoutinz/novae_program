@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 
 const LandingPage = () => {
@@ -10,6 +10,16 @@ const LandingPage = () => {
   const [email, setEmail] = useState('');
   const [isResearching, setIsResearching] = useState(false);
   const [submitStatus, setSubmitStatus] = useState(null);
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+
+  // Track mouse position for cursor effect
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      setMousePosition({ x: e.clientX, y: e.clientY });
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
 
   const handleSubmitLead = async (e) => {
     e.preventDefault();
@@ -19,71 +29,128 @@ const LandingPage = () => {
       return;
     }
 
-    setIsResearching(true);
-    setSubmitStatus(null);
+    // Mostra sucesso IMEDIATAMENTE para o cliente
+    setSubmitStatus({ 
+      type: 'success', 
+      message: '✅ Thanks! We\'ll be in touch soon.' 
+    });
+    
+    // Limpa o form imediatamente
+    const submittedCompany = companyName;
+    const submittedContact = contactName;
+    const submittedEmail = email;
+    
+    setCompanyName('');
+    setContactName('');
+    setEmail('');
 
-    try {
-      // Call Edge Function to research company
-      const { data: researchData, error: researchError } = await supabase.functions.invoke('research-company', {
-        body: { companyName, companyWebsite: '' }
-      });
+    // Limpa a mensagem depois de 3 segundos
+    setTimeout(() => {
+      setSubmitStatus(null);
+    }, 3000);
 
-      if (researchError) {
-        console.error('Research error:', researchError);
-        // Continue even if research fails
+    // Pesquisa e insere em background (cliente não vê nada)
+    (async () => {
+      try {
+        console.log('🔍 Starting background research for:', submittedCompany);
+        
+        // Pesquisa a empresa com a AI
+        const { data: researchData, error: researchError } = await supabase.functions.invoke('research-company', {
+          body: { companyName: submittedCompany, companyWebsite: '' }
+        });
+
+        console.log('📊 Research response:', researchData);
+
+        if (researchError) {
+          console.error('❌ Research error:', researchError);
+          throw researchError;
+        }
+
+        // Edge function retorna: { success: true, data: {...} }
+        const aiData = researchData?.data;
+
+        if (!aiData) {
+          console.error('❌ No data from research');
+          throw new Error('No data returned from research');
+        }
+
+        // Cria cliente com dados pesquisados
+        const clientData = {
+          nome: submittedContact,
+          empresa: submittedCompany,
+          email: submittedEmail,
+          setor: aiData.setor || 'tecnologia',
+          tamanho_equipa: aiData.tamanho_equipa || 10,
+          objetivo: aiData.objetivo || 'Melhorar processos de vendas',
+          orcamento_est: aiData.orcamento_est || '10k-20k',
+          urgencia: aiData.urgencia || 'média',
+          experiencia_ia: aiData.experiencia_ia || 'básica',
+        };
+
+        console.log('💾 Inserting client with data:', clientData);
+
+        const { error: insertError } = await supabase
+          .from('clientes')
+          .insert([clientData]);
+
+        if (insertError) {
+          console.error('❌ Error inserting client:', insertError);
+          throw insertError;
+        }
+        
+        console.log('✅ Client added successfully with AI research!');
+
+      } catch (error) {
+        console.error('❌ Background process error:', error);
+        
+        // Se falhar completamente, insere com dados básicos como fallback
+        try {
+          console.log('🔄 Fallback: inserting with default data');
+          const fallbackData = {
+            nome: submittedContact,
+            empresa: submittedCompany,
+            email: submittedEmail,
+            setor: 'tecnologia',
+            tamanho_equipa: 10,
+            objetivo: 'Melhorar processos de vendas',
+            orcamento_est: '10k-20k',
+            urgencia: 'média',
+            experiencia_ia: 'básica',
+          };
+          
+          await supabase.from('clientes').insert([fallbackData]);
+          console.log('✅ Client added with default data');
+        } catch (fallbackError) {
+          console.error('❌ Fallback also failed:', fallbackError);
+        }
       }
-
-      // Create client with researched data or defaults
-      const clientData = {
-        nome: contactName,
-        empresa: companyName,
-        email: email,
-        setor: researchData?.data?.setor || 'tecnologia',
-        tamanho_equipa: researchData?.data?.tamanho_equipa || 10,
-        objetivo: researchData?.data?.objetivo || 'Melhorar processos de vendas',
-        orcamento_est: researchData?.data?.orcamento_est || '10k-20k',
-        urgencia: researchData?.data?.urgencia || 'média',
-        experiencia_ia: researchData?.data?.experiencia_ia || 'básica',
-      };
-
-      const { error: insertError } = await supabase
-        .from('clientes')
-        .insert([clientData]);
-
-      if (insertError) throw insertError;
-
-      setSubmitStatus({ 
-        type: 'success', 
-        message: '✅ Lead added! AI research completed. Check your dashboard!' 
-      });
-      
-      // Clear form
-      setCompanyName('');
-      setContactName('');
-      setEmail('');
-
-      // Redirect to dashboard after 2 seconds
-      setTimeout(() => navigate('/dashboard'), 2000);
-
-    } catch (error) {
-      console.error('Error:', error);
-      setSubmitStatus({ 
-        type: 'error', 
-        message: 'Failed to add lead. Please try again.' 
-      });
-    } finally {
-      setIsResearching(false);
-    }
+    })();
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-emerald-950 to-slate-950 relative overflow-hidden">
-      {/* Animated grid background */}
-      <div className="absolute inset-0 bg-[linear-gradient(rgba(16,185,129,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(16,185,129,0.03)_1px,transparent_1px)] bg-[size:64px_64px]" />
+    <div className="min-h-screen bg-[#0a0f1c] relative overflow-hidden">
+      {/* Mouse spotlight effect */}
+      <div 
+        className="pointer-events-none fixed inset-0 z-30 transition duration-300"
+        style={{
+          background: `radial-gradient(600px at ${mousePosition.x}px ${mousePosition.y}px, rgba(16, 185, 129, 0.08), transparent 80%)`
+        }}
+      />
       
-      {/* Glowing orbs */}
-      <div className="absolute top-0 left-1/4 w-96 h-96 bg-emerald-500/20 rounded-full blur-3xl animate-pulse" />
-      <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-emerald-400/20 rounded-full blur-3xl animate-pulse delay-1000" />
+      {/* Diagonal stripes pattern */}
+      <div className="absolute inset-0 opacity-[0.03]" style={{
+        backgroundImage: 'repeating-linear-gradient(45deg, #10b981 0, #10b981 1px, transparent 0, transparent 50%)',
+        backgroundSize: '20px 20px'
+      }} />
+      
+      {/* Animated noise texture */}
+      <div className="absolute inset-0 opacity-[0.015]" style={{
+        backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 400 400\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noiseFilter\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.9\' numOctaves=\'4\' /%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23noiseFilter)\' /%3E%3C/svg%3E")'
+      }} />
+      
+      {/* Subtle gradient overlays */}
+      <div className="absolute top-0 left-0 w-full h-1/3 bg-gradient-to-b from-emerald-950/10 to-transparent" />
+      <div className="absolute bottom-0 left-0 w-full h-1/3 bg-gradient-to-t from-emerald-950/10 to-transparent" />
 
       {/* Top Nav */}
       <nav className="relative z-10 flex items-center justify-between px-8 py-6">
@@ -125,7 +192,7 @@ const LandingPage = () => {
               transition={{ delay: 0.2 }}
               className="inline-block mb-6 px-5 py-2 bg-emerald-500/10 backdrop-blur-sm border border-emerald-500/30 rounded-full text-emerald-400 text-sm font-medium"
             >
-              ✨ AI-Powered Sales Training
+              Voice AI · Real Practice · Real Results
             </motion.div>
 
             <motion.h1
@@ -134,10 +201,10 @@ const LandingPage = () => {
               transition={{ delay: 0.3 }}
               className="text-5xl md:text-7xl font-bold text-white mb-6 font-poppins leading-tight"
             >
-              Train Smarter.
+              Practice calls.
               <br />
               <span className="bg-gradient-to-r from-emerald-400 to-emerald-600 bg-clip-text text-transparent">
-                Close Faster.
+                Win deals.
               </span>
             </motion.h1>
 
@@ -147,8 +214,8 @@ const LandingPage = () => {
               transition={{ delay: 0.4 }}
               className="text-xl text-gray-400 mb-8 font-light leading-relaxed"
             >
-              AI voice coaching that transforms performance.
-              Practice real scenarios, get instant feedback, increase conversion.
+              Talk to AI prospects that challenge you. Get feedback that matters.
+              Stop losing deals to better-prepared competitors.
             </motion.p>
 
             <motion.div
@@ -161,12 +228,12 @@ const LandingPage = () => {
                 onClick={() => navigate('/dashboard')}
                 className="group px-8 py-4 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-full text-lg font-semibold shadow-2xl shadow-emerald-500/50 hover:shadow-emerald-500/70 transition-all duration-300 hover:scale-105"
               >
-                Start Training Now
+                Start Practicing
                 <span className="inline-block ml-2 group-hover:translate-x-1 transition-transform">→</span>
               </button>
               
               <button className="px-8 py-4 bg-white/5 backdrop-blur-sm text-white rounded-full text-lg font-semibold border border-white/20 hover:bg-white/10 transition-all duration-300">
-                Watch Demo
+                See How It Works
               </button>
             </motion.div>
           </motion.div>
@@ -289,9 +356,9 @@ const LandingPage = () => {
             className="text-center mb-16"
           >
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-4 font-poppins">
-              Real Results. Real Fast.
+              The Problem is Obvious
             </h2>
-            <p className="text-xl text-gray-400">80% of sales reps fail due to poor preparation. We fix that.</p>
+            <p className="text-xl text-gray-400">Most reps wing it. Top performers practice. Simple as that.</p>
           </motion.div>
 
           {/* Two column impact */}
@@ -362,10 +429,10 @@ const LandingPage = () => {
           <div className="bg-gradient-to-br from-slate-900/90 to-slate-800/90 backdrop-blur-xl border border-emerald-500/20 rounded-3xl p-8 md:p-12 shadow-2xl">
             <div className="text-center mb-8">
               <h2 className="text-4xl md:text-5xl font-bold text-white mb-4 font-poppins">
-                Got a New Lead?
+                New Prospect?
               </h2>
               <p className="text-lg text-gray-400">
-                Add them here. Our AI will research the company and prep you for the meeting.
+                Drop their info. We'll research the company and build a practice scenario.
               </p>
             </div>
 
@@ -430,20 +497,20 @@ const LandingPage = () => {
                 {isResearching ? (
                   <>
                     <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                    <span>Researching Company...</span>
+                    <span>Processing...</span>
                   </>
                 ) : (
                   <>
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                     </svg>
-                    <span>Add Lead & Start Prep</span>
+                    <span>Add & Build Scenario</span>
                   </>
                 )}
               </button>
 
               <p className="text-center text-gray-500 text-sm">
-                🤖 AI will research the company and create a training scenario automatically
+                AI researches the company automatically · Takes ~10 seconds
               </p>
             </form>
           </div>
@@ -453,7 +520,7 @@ const LandingPage = () => {
       {/* Footer */}
       <footer className="relative z-10 border-t border-white/10 py-8 text-center">
         <p className="text-gray-500 text-sm">© 2025 CallCoach AI</p>
-        <p className="text-emerald-500 font-semibold text-sm mt-1">Train. Improve. Close.</p>
+        <p className="text-emerald-500 font-semibold text-sm mt-1">Practice → Performance → Revenue</p>
       </footer>
     </div>
   );

@@ -114,6 +114,61 @@ const TrainingSimulator = () => {
       const conversation = await Conversation.startSession({
         agentId: agentId,
         connectionType: 'webrtc', // Use WebRTC for better performance
+        overrides: {
+          agent: {
+            prompt: {
+              prompt: `You are ${selectedCliente.nome} from ${selectedCliente.empresa}, a decision-maker evaluating AI consulting services.
+
+COMPANY CONTEXT:
+- Sector: ${selectedCliente.setor}
+- Team Size: ${selectedCliente.tamanho_equipa} people
+- Budget: ${selectedCliente.orcamento_est}
+- Urgency: ${selectedCliente.urgencia}
+- AI Experience: ${selectedCliente.experiencia_ia}
+- Main Objective: ${selectedCliente.objetivo}
+
+YOUR ROLE:
+- Act as a real business decision-maker from ${selectedCliente.setor}
+- Reference your company's (${selectedCliente.empresa}) actual challenges and context
+- Ask intelligent questions about implementation, costs, ROI, and timeline
+- Show genuine interest but raise realistic concerns based on your industry
+- Respond naturally to what the salesperson says
+- Challenge vague answers and ask for specifics
+- Keep the conversation flowing naturally for 10-15 minutes
+
+YOUR PERSONALITY:
+- Professional but conversational (speak in Portuguese naturally)
+- Somewhat skeptical (you've talked to other vendors)
+- Budget-conscious but value-focused (your budget range: ${selectedCliente.orcamento_est})
+- Want concrete examples and case studies from ${selectedCliente.setor}
+
+CONVERSATION GUIDELINES:
+- Speak naturally with pauses and "hmm", "entendo", "interessante"
+- Don't reveal you are an AI
+- Ask follow-up questions based on their answers
+- If they give a weak answer, push back politely: "Mas como é que isso funciona na prática?"
+- Reference your specific situation: "Na nossa empresa, temos ${selectedCliente.tamanho_equipa} pessoas..."
+- Bring up your main concern: ${selectedCliente.objetivo}
+- End naturally when conversation reaches 12-15 minutes
+
+REALISTIC OBJECTIONS TO RAISE:
+- Budget concerns (your range is ${selectedCliente.orcamento_est})
+- Implementation timeline
+- Team training and adoption
+- ROI and measurable results
+- Integration with existing systems
+- Support and maintenance
+
+DO NOT:
+- Speak like a robot or too formally
+- Accept vague answers without pushing
+- Make the conversation too easy
+- End too quickly (minimum 10 minutes)
+- Forget you are from ${selectedCliente.empresa} in ${selectedCliente.setor}`
+            },
+            first_message: `Olá! Obrigado por marcar esta reunião. Sou ${selectedCliente.nome} da ${selectedCliente.empresa}. Estamos interessados em explorar serviços de consultoria em IA para ${selectedCliente.objetivo.toLowerCase()}.`
+          }
+        },
         onConnect: () => {
           console.log('✅ Connected to ElevenLabs');
           // Get conversation ID after connection is established
@@ -277,7 +332,15 @@ const TrainingSimulator = () => {
             const rationale = evaluationResults.sales_effectiveness_score.rationale || '';
             const scoreMatch = rationale.match(/(\d+)\/10|score[:\s]+(\d+)|(\d+)\s*out of 10/i);
             if (scoreMatch) {
-              score = parseInt(scoreMatch[1] || scoreMatch[2] || scoreMatch[3]);
+              const extractedScore = parseInt(scoreMatch[1] || scoreMatch[2] || scoreMatch[3]);
+              // Ensure score is between 0-10
+              score = Math.min(Math.max(extractedScore, 0), 10);
+            } else {
+              // If no score found, assign default based on result
+              const result = evaluationResults.sales_effectiveness_score.result;
+              if (result === 'success') score = 8;
+              else if (result === 'unknown') score = 5;
+              else if (result === 'failure') score = 3;
             }
           }
 
@@ -286,16 +349,53 @@ const TrainingSimulator = () => {
           const improvementAreas = dataCollection.improvement_areas?.value;
           const pontosArray = improvementAreas ? improvementAreas.split(',').map(s => s.trim()) : null;
 
-          // Build feedback from positive highlights and improvement areas
+          // Build comprehensive feedback from all evaluation data
           let feedback = '';
+          
+          // Add call outcome
+          const callOutcome = conversationData?.analysis?.call_successful;
+          if (callOutcome) {
+            const outcomeEmoji = callOutcome === 'success' ? '✅' : callOutcome === 'failure' ? '❌' : '⚠️';
+            feedback += `${outcomeEmoji} Call Outcome: ${callOutcome.toUpperCase()}\n\n`;
+          }
+          
+          // Add professional communication evaluation
+          if (evaluationResults.professional_communication) {
+            const commResult = evaluationResults.professional_communication.result;
+            const commEmoji = commResult === 'success' ? '✅' : commResult === 'failure' ? '❌' : '⚠️';
+            feedback += `${commEmoji} Professional Communication: ${commResult.toUpperCase()}\n`;
+            feedback += `${evaluationResults.professional_communication.rationale}\n\n`;
+          }
+          
+          // Add client needs identification
+          if (evaluationResults.identified_client_needs) {
+            const needsResult = evaluationResults.identified_client_needs.result;
+            const needsEmoji = needsResult === 'success' ? '✅' : needsResult === 'failure' ? '❌' : '⚠️';
+            feedback += `${needsEmoji} Client Needs Identification: ${needsResult.toUpperCase()}\n`;
+            feedback += `${evaluationResults.identified_client_needs.rationale}\n\n`;
+          }
+          
+          // Add positive highlights
           if (dataCollection.positive_highlights?.value) {
             feedback += `✅ Strengths:\n${dataCollection.positive_highlights.value}\n\n`;
           }
+          
+          // Add client objections
           if (dataCollection.client_objections?.value && dataCollection.client_objections.value !== 'None') {
             feedback += `⚠️ Client Objections:\n${dataCollection.client_objections.value}\n\n`;
           }
+          
+          // Add next steps
           if (dataCollection.next_steps_suggested?.value) {
-            feedback += `📋 Next Steps:\n${dataCollection.next_steps_suggested.value}`;
+            feedback += `📋 Next Steps:\n${dataCollection.next_steps_suggested.value}\n\n`;
+          }
+          
+          // Add call duration
+          const duration = conversationData?.metadata?.call_duration_secs;
+          if (duration) {
+            const minutes = Math.floor(duration / 60);
+            const seconds = duration % 60;
+            feedback += `⏱️ Call Duration: ${minutes}m ${seconds}s`;
           }
 
           const trainingData = {
@@ -360,109 +460,118 @@ const TrainingSimulator = () => {
   if (isCallActive && selectedCliente) {
     return (
       <motion.div
-        className="min-h-[70vh] px-6 py-12"
+        className="px-6 py-6 max-h-[calc(100vh-180px)] overflow-hidden"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.5 }}
       >
-        <div className="max-w-4xl mx-auto">
-          {/* Call Header */}
-          <div className="bg-gradient-to-br from-emerald-500/10 to-emerald-600/10 border border-emerald-500/30 rounded-3xl p-8 mb-6">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center space-x-4">
-                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center text-white font-bold text-2xl shadow-lg">
+        <div className="max-w-5xl mx-auto h-full flex flex-col">
+          {/* Call Header - Compact */}
+          <div className="bg-gradient-to-br from-emerald-500/10 to-emerald-600/10 border border-emerald-500/30 rounded-2xl p-5 mb-4">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-14 h-14 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center text-white font-bold text-xl shadow-lg">
                   {selectedCliente.nome?.charAt(0)}
                 </div>
                 <div>
-                  <h2 className="text-3xl font-bold text-white font-poppins">{selectedCliente.nome}</h2>
-                  <p className="text-emerald-400">{selectedCliente.empresa}</p>
+                  <h2 className="text-2xl font-bold text-white font-poppins">{selectedCliente.nome}</h2>
+                  <p className="text-emerald-400 text-sm">{selectedCliente.empresa}</p>
                 </div>
               </div>
               <motion.div
-                className="flex items-center space-x-2 px-4 py-2 bg-emerald-500/20 border border-emerald-500/40 rounded-full"
+                className="flex items-center space-x-2 px-3 py-1.5 bg-emerald-500/20 border border-emerald-500/40 rounded-full"
                 animate={{ opacity: [1, 0.5, 1] }}
                 transition={{ duration: 2, repeat: Infinity }}
               >
-                <div className="w-3 h-3 rounded-full bg-emerald-400"></div>
-                <span className="text-emerald-400 font-semibold">Call Active</span>
+                <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
+                <span className="text-emerald-400 font-semibold text-sm">Call Active</span>
               </motion.div>
             </div>
 
-            {/* Client Info Grid */}
-            <div className="grid md:grid-cols-3 gap-4 mb-6">
-              <div className="bg-[#0f172a] rounded-xl p-4">
-                <div className="text-gray-400 text-sm mb-1">Objective</div>
-                <div className="text-white font-medium">{selectedCliente.objetivo || 'N/A'}</div>
+            {/* Client Info Grid - 2 columns for compact view */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-[#0f172a] rounded-lg p-3 col-span-3">
+                <div className="text-gray-400 text-xs mb-0.5">Sales Target</div>
+                <div className="text-white font-medium text-sm line-clamp-2">{selectedCliente.objetivo || 'N/A'}</div>
               </div>
-              <div className="bg-[#0f172a] rounded-xl p-4">
-                <div className="text-gray-400 text-sm mb-1">Budget</div>
-                <div className="text-white font-medium">{selectedCliente.orcamento_est || 'N/A'}</div>
+              <div className="bg-[#0f172a] rounded-lg p-3">
+                <div className="text-gray-400 text-xs mb-0.5">Budget</div>
+                <div className="text-white font-medium text-sm">{selectedCliente.orcamento_est || 'N/A'}</div>
               </div>
-              <div className="bg-[#0f172a] rounded-xl p-4">
-                <div className="text-gray-400 text-sm mb-1">Urgency</div>
-                <div className={`inline-block px-3 py-1 rounded-full text-sm font-semibold border ${getUrgencyColor(selectedCliente.urgencia)}`}>
-                  {selectedCliente.urgencia || 'N/A'}
+              <div className="bg-[#0f172a] rounded-lg p-3">
+                <div className="text-gray-400 text-xs mb-0.5">Urgency</div>
+                <div className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold border ${getUrgencyColor(selectedCliente.urgencia)}`}>
+                  {selectedCliente.urgencia || 'média'}
                 </div>
               </div>
-            </div>
-
-            <div className="grid md:grid-cols-3 gap-4">
-              <div className="bg-[#0f172a] rounded-xl p-4">
-                <div className="text-gray-400 text-sm mb-1">Sector</div>
-                <div className="text-white font-medium">{selectedCliente.setor || 'N/A'}</div>
+              <div className="bg-[#0f172a] rounded-lg p-3">
+                <div className="text-gray-400 text-xs mb-0.5">Team Size</div>
+                <div className="text-white font-medium text-sm">{selectedCliente.tamanho_equipa || 'N/A'}</div>
               </div>
-              <div className="bg-[#0f172a] rounded-xl p-4">
-                <div className="text-gray-400 text-sm mb-1">Team Size</div>
-                <div className="text-white font-medium">{selectedCliente.tamanho_equipa || 'N/A'}</div>
+              <div className="bg-[#0f172a] rounded-lg p-3">
+                <div className="text-gray-400 text-xs mb-0.5">Sector</div>
+                <div className="text-white font-medium text-sm">{selectedCliente.setor || 'N/A'}</div>
               </div>
-              <div className="bg-[#0f172a] rounded-xl p-4">
-                <div className="text-gray-400 text-sm mb-1">AI Experience</div>
-                <div className="text-white font-medium">{selectedCliente.experiencia_ia || 'N/A'}</div>
+              <div className="bg-[#0f172a] rounded-lg p-3">
+                <div className="text-gray-400 text-xs mb-0.5">AI Experience</div>
+                <div className="text-white font-medium text-sm">{selectedCliente.experiencia_ia || 'N/A'}</div>
               </div>
             </div>
           </div>
 
-          {/* Voice Interface */}
-          <div className="bg-gradient-to-br from-slate-900/90 to-slate-800/90 border border-emerald-500/20 rounded-3xl p-12 text-center">
+          {/* Voice Interface - Compact */}
+          <div className="bg-gradient-to-br from-slate-900/90 to-slate-800/90 border border-emerald-500/20 rounded-2xl p-10 text-center flex-1 flex flex-col justify-center">
             {!isTrainingStarted ? (
               // Pre-training view - Show Start Button
               <>
-                <div className="w-32 h-32 mx-auto mb-8 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-2xl shadow-emerald-500/30">
-                  <svg className="w-16 h-16 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-28 h-28 mx-auto mb-6 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-2xl shadow-emerald-500/40">
+                  <svg className="w-14 h-14 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                   </svg>
                 </div>
 
-                <h3 className="text-2xl font-bold text-white mb-2 font-poppins">
+                <h3 className="text-3xl font-bold text-white mb-3 font-poppins">
                   Ready to Start Training
                 </h3>
-                <p className="text-gray-400 mb-8">
+                <p className="text-gray-400 mb-8 text-sm">
                   Click the button below to begin your AI-powered sales training session
                 </p>
 
-                <button
-                  onClick={handleStartTraining}
-                  className="px-12 py-5 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white rounded-full font-bold text-lg transition-all hover:scale-105 shadow-2xl shadow-emerald-500/50 flex items-center justify-center space-x-3 mx-auto"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <div className="flex items-center justify-center gap-4 mb-5">
+                  <button
+                    onClick={handleStartTraining}
+                    className="px-12 py-4 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white rounded-full font-bold text-base transition-all hover:scale-105 shadow-2xl shadow-emerald-500/50 flex items-center justify-center space-x-2"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   <span>Start Training</span>
                 </button>
 
                 <button
-                  onClick={handleEndCall}
-                  className="mt-6 px-8 py-3 bg-slate-700/50 hover:bg-slate-700 text-gray-400 hover:text-white rounded-full font-semibold transition-all"
+                  onClick={() => alert('Get Report feature coming soon!')}
+                  className="px-12 py-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-full font-bold text-base transition-all hover:scale-105 shadow-2xl shadow-blue-500/50 flex items-center justify-center space-x-2"
                 >
-                  Go Back
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <span>Get Report</span>
                 </button>
-              </>
+              </div>
+
+              <button
+                onClick={handleEndCall}
+                className="px-5 py-2 bg-transparent hover:bg-slate-800/50 text-gray-500 hover:text-gray-300 rounded-full text-sm font-medium transition-all"
+              >
+                ← Go Back
+              </button>
+            </>
             ) : (
               // Training active view
               <>
             <motion.div
-              className="w-32 h-32 mx-auto mb-8 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-2xl shadow-emerald-500/30"
+              className="w-20 h-20 mx-auto mb-4 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-2xl shadow-emerald-500/30"
               animate={{
                 scale: [1, 1.1, 1],
               }}
@@ -472,26 +581,26 @@ const TrainingSimulator = () => {
                 ease: "easeInOut"
               }}
             >
-              <svg className="w-16 h-16 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
               </svg>
             </motion.div>
 
-                <h3 className="text-2xl font-bold text-white mb-2 font-poppins">
+                <h3 className="text-xl font-bold text-white mb-1 font-poppins">
                   {isConnecting ? 'Connecting to AI Coach...' : 'AI Voice Coaching Active'}
                 </h3>
-                <p className="text-gray-400 mb-8">
+                <p className="text-gray-400 mb-4 text-sm">
                   {isConnecting ? 'Please wait while we connect...' : conversationStatus === 'connected' ? 'Start speaking to begin your training session' : 'Initializing...'}
                 </p>
 
             {/* Waveform visualization placeholder */}
-                <div className="flex items-center justify-center space-x-2 mb-8 h-20">
+                <div className="flex items-center justify-center space-x-1.5 mb-6 h-12">
               {[...Array(20)].map((_, i) => (
                 <motion.div
                   key={i}
                   className="w-1 bg-emerald-500 rounded-full"
                   animate={{
-                    height: [20, Math.random() * 60 + 20, 20],
+                    height: [12, Math.random() * 40 + 12, 12],
                   }}
                   transition={{
                     duration: 0.8,
@@ -502,18 +611,18 @@ const TrainingSimulator = () => {
               ))}
             </div>
 
-            <div className="flex items-center justify-center space-x-4">
+            <div className="flex items-center justify-center space-x-3">
                   <button 
                     onClick={handleToggleMute}
-                    className={`px-8 py-4 ${isMuted ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-slate-700/50 hover:bg-slate-700'} text-white rounded-full font-semibold transition-all flex items-center space-x-2`}
+                    className={`px-6 py-3 ${isMuted ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-slate-700/50 hover:bg-slate-700'} text-white rounded-full font-semibold transition-all flex items-center space-x-2 text-sm`}
                   >
                     {isMuted ? (
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" clipRule="evenodd" />
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
                       </svg>
                     ) : (
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                 </svg>
                     )}
@@ -522,9 +631,9 @@ const TrainingSimulator = () => {
               
               <button
                 onClick={handleEndCall}
-                className="px-8 py-4 bg-red-500 hover:bg-red-600 text-white rounded-full font-semibold transition-all flex items-center space-x-2"
+                className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-full font-semibold transition-all flex items-center space-x-2 text-sm"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
                 <span>End Training</span>
@@ -537,20 +646,20 @@ const TrainingSimulator = () => {
           {/* Real-time feedback - only show when training is active */}
           {isTrainingStarted && (
           <motion.div
-            className="mt-6 bg-blue-500/10 border border-blue-500/30 rounded-2xl p-6"
+            className="mt-3 bg-blue-500/10 border border-blue-500/30 rounded-xl p-4"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.5 }}
           >
-            <div className="flex items-start space-x-3">
-              <svg className="w-6 h-6 text-blue-400 flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex items-start space-x-2">
+              <svg className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <div>
-                <h4 className="text-white font-semibold mb-2">AI Tip</h4>
-                <p className="text-gray-300 text-sm">Focus on understanding {selectedCliente.nome}'s pain points before presenting solutions. Ask open-ended questions about their current challenges.</p>
+                <h4 className="text-white font-semibold text-sm mb-1">AI Tip</h4>
+                <p className="text-gray-300 text-xs">Focus on understanding {selectedCliente.nome}'s pain points before presenting solutions. Ask open-ended questions about their current challenges.</p>
                   {conversationId && (
-                    <p className="text-gray-500 text-xs mt-2">Conversation ID: {conversationId}</p>
+                    <p className="text-gray-500 text-xs mt-1">Conversation ID: {conversationId}</p>
                   )}
               </div>
             </div>
@@ -652,4 +761,3 @@ const TrainingSimulator = () => {
 };
 
 export default TrainingSimulator;
-
